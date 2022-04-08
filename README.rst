@@ -1,8 +1,6 @@
 MPIPartition
 ============
 
-TEST
-
 
 .. image:: https://img.shields.io/pypi/v/mpipartition.svg
    :target: https://pypi.python.org/pypi/mpipartition
