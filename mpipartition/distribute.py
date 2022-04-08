@@ -1,5 +1,3 @@
-# TEST TEST TEST
-
 from .partition import Partition, MPI
 from typing import Mapping, Tuple, Union
 import sys
