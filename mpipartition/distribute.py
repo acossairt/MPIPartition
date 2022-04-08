@@ -10,7 +10,7 @@ def distribute(
     partition: Partition,
     box_size: float,
     data: ParticleDataT,
-    xyz_keys: Tuple[str, str, str],
+    xyz_keys: Tuple[str, str, str],    # AC - replace this with `Tuple[str, ...]`, the ellipses should annotate a tuple of variable length and homogeneous type
     *,
     verbose: Union[bool, int] = False,
     verify_count: bool = True,
@@ -33,7 +33,7 @@ def distribute(
     data:
         The treenode / coretree data that should be distributed
 
-    xyz_keys:
+    xyz_keys:                                        # AC - might want to change this name so it's more general (e.g. for 2D cases?)
         The columns in `data` that define the position of the object
 
     verbose:
@@ -62,11 +62,12 @@ def distribute(
     extent = box_size * np.array(partition.extent)
 
     # count number of particles we have
-    total_to_send = len(data[xyz_keys[0]])
+    total_to_send = len(data[xyz_keys[0]])             # AC - this is just a way to get len(data['x'])
 
     if total_to_send > 0:
+        #home_idx = np.zeros([])     # AC - could find home of each particle in the for loop instead?
         # Check validity of coordinates
-        for i in range(3):
+        for i in range(3):           # AC - Replace "3" with the variable `len(xyz_keys)`
             _x = data[xyz_keys[i]]
             _min = _x.min()
             _max = _x.max()

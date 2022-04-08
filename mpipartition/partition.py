@@ -70,7 +70,7 @@ class Partition:
     >>> partition.rank
     0
     >>> partition.decomp
-    np.ndarray([2, 2, 2])
+    np.ndarray([2, 2, 2])          # AC - why does it look like that, if it's being split among 8 ranks? Is this ranks per dimension?
     >>> partition.coordinates
     np.ndarray([0, 0, 0])
     >>> partition.origin
@@ -90,17 +90,17 @@ class Partition:
         self._rank = _rank
         self._nranks = _nranks
         if commensurate_topo is None:
-            self._decomp = MPI.Compute_dims(_nranks, [0, 0, 0])
+            self._decomp = MPI.Compute_dims(_nranks, [0, 0, 0])       # AC - Patricia says, pay attention to this line
         else:
             nranks_factors = _factorize(self._nranks)
             decomp, remainder = _distribute_factors(nranks_factors, commensurate_topo)
             assert np.all(decomp * remainder == np.array(commensurate_topo))
             assert np.prod(decomp) == self._nranks
-            self._decomp = decomp.tolist()
+            self._decomp = decomp.tolist()                            # AC - until about this line
 
         periodic = [True, True, True]
         time.sleep(mpi_waittime)
-        self._topo = _comm.Create_cart(self._decomp, periods=periodic)
+        self._topo = _comm.Create_cart(self._decomp, periods=periodic)    # AC - Patricia says, pay attention to this line
         self._coords = list(self._topo.coords)
         time.sleep(mpi_waittime)
         self._neighbors = np.empty((3, 3, 3), dtype=np.int32)
