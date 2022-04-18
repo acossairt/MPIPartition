@@ -96,22 +96,53 @@ def test_overload(ndims, box_size, overload_length, nparticles = 1000):
 # Want to try feeding a box_size and nranks combo that prevents a commensurate topology?
 
 # Add a test for overload_length = 0
+def test_0overload_length(ndims, box_size = 200, nparticles = 1000):
+    
+    # partitioning a box with the available MPI ranks
+    partition = Partition(ndims = ndims)
+    rank = partition.rank
+    origin = partition.origin
+    extent = partition.extent
+    print("\nRank ", rank, " has origin ", origin, " and extent ", extent)
+    
+    # Create data according to desired dimensions
+    possible_coords = "xyzwuv"
+    coord_keys = possible_coords[:ndims]
+    overload_length = 0
+
+    #if data == None:
+    data = {
+        x: np.random.uniform(0, 1*box_size, nparticles) for i, x in enumerate(coord_keys)
+    }
+    
+    # assign to rank by position
+    data_distributed = distribute(partition, box_size, data, coord_keys)
+    nparticles_dist = len(data_distributed[coord_keys[0]])
+    
+    # overload particles with overload_length = 0
+    data_overloaded = overload(partition, box_size, data_distributed, overload_length, coord_keys)
+    nparticles_ol = len(data_overloaded[coord_keys[0]])
+    assert nparticles_dist == nparticles_ol
 
 @pytest.mark.mpi
 def test_1d(box_size = 200, overload_length = 8, nparticles = 1000):
     test_overload(ndims = 1, box_size = box_size, overload_length = overload_length, nparticles = nparticles)
+    test_0overload_length(ndims = 1, box_size = box_size, nparticles = nparticles)
     
 @pytest.mark.mpi
 def test_2d(box_size = 200, overload_length = 8, nparticles = 1000):
     test_overload(ndims = 2, box_size = box_size, overload_length = overload_length, nparticles = nparticles)
+    test_0overload_length(ndims = 2, box_size = box_size, nparticles = nparticles)
     
 @pytest.mark.mpi
 def test_3d(box_size = 200, overload_length = 8, nparticles = 1000):
     test_overload(ndims = 3, box_size = box_size, overload_length = overload_length, nparticles = nparticles)
+    test_0overload_length(ndims = 3, box_size = box_size, nparticles = nparticles)
     
 @pytest.mark.mpi
 def test_4d(box_size = 200, overload_length = 8, nparticles = 1000):
     test_overload(ndims = 4, box_size = box_size, overload_length = overload_length, nparticles = nparticles)
+    test_0overload_length(ndims = 4, box_size = box_size, nparticles = nparticles)
     
 # Problem with test_1d()?
 #test_3d()
