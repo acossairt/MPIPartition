@@ -49,7 +49,7 @@ class Partition:
 
     create_topo_unique : boolean
         If `True`, an additional graph communicator will be initialized
-        connecting all unique direct neighbors (3**ndimensions - 1) symmetrically
+        connecting all (8 or 26) unique direct neighbors symmetrically
 
     mpi_waittime : float
         Time in seconds for which the initialization will wait, can fix certain
@@ -57,7 +57,7 @@ class Partition:
 
     commensurate_topo : List[int]
         A proportional target topology for decomposition. When specified, a partition
-        will be created so that `commensurate_topo[i] % partition.decomposition[i] == 0` for
+        will be created so that `commensurate_topo[i] % partition.decomp[i] == 0` for
         all `i`. The code will raise a RuntimeError if such a decomposition is not
         possible.
 
@@ -69,7 +69,7 @@ class Partition:
     >>> partition = Partition(1.0)
     >>> partition.rank
     0
-    >>> partition.decomposition
+    >>> partition.decomp
     np.ndarray([2, 2, 2])                  # AC - This is slices (subvolumes) per dimension, and the indexing starts at 0
     >>> partition.coordinates
     np.ndarray([0, 0, 0])
@@ -90,32 +90,52 @@ class Partition:
     ):
         self._rank = _rank
         self._nranks = _nranks
-        if commensurate_topo is None:    # AC - does anything bad happen to self._decomposition when coord (fed to self._topo) has fewer elements?
-            self._decomposition = MPI.Compute_dims(_nranks, np.zeros(ndims, dtype = np.int32))       # AC - A 1 dimensional object containing the distribution of processes per coordinate direction. For 3 dimensions and 8 ranks, this would be `(2, 2, 2)`
+        if commensurate_topo is None:    # AC - does anything bad happen to self._decomp when coord (fed to self._topo) has fewer elements?
+            self._decomp = MPI.Compute_dims(_nranks, np.zeros(ndims, dtype = np.int32))       # AC - A 1 dimensional object containing the distribution of processes per coordinate direction. For 3 dimensions and 8 ranks, this would be `(2, 2, 2)`
         else:                                     
             nranks_factors = _factorize(self._nranks)
-            decomposition, remainder = _distribute_factors(nranks_factors, commensurate_topo)
-            assert np.all(decomposition * remainder == np.array(commensurate_topo))
-            assert np.prod(decomposition) == self._nranks
-            self._decomposition = decomposition.tolist()
+            decomp, remainder = _distribute_factors(nranks_factors, commensurate_topo)
+            assert np.all(decomp * remainder == np.array(commensurate_topo))
+            assert np.prod(decomp) == self._nranks
+            self._decomp = decomp.tolist()                                
 
         periodic = [True,]*ndims     # AC - should account for various dimensions
         time.sleep(mpi_waittime)
-        self._topo = _comm.Create_cart(self._decomposition, periods=periodic)
+        self._topo = _comm.Create_cart(self._decomp, periods=periodic)
         self._coords = list(self._topo.coords)
         time.sleep(mpi_waittime)
         self._neighbors = np.empty(np.array((3,)*ndims), dtype=np.int32)  # AC - Changed so that this can also be (3, 3)
-   
-        all_relative_positions = itertools.product([-1, 0, 1], repeat = ndims)  # AC - 0, 1, and -1 denote a rank's position relative to it's neighbor
-        for rel_pos in all_relative_positions:
-            coord = []
-            for i in range(ndims): # AC - could also have done len(coords), but this makes the meaning clearer
-                coord.append((self._coords[i] + rel_pos[i]) % self._decomposition[i])
-            neigh = self._topo.Get_cart_rank(coord)
-            self._neighbors[tuple(np.array(rel_pos) + 1)] = neigh
-            # self._neighbors.append(neigh)
+        
+        # AC - Go back and make this work for any `n` dimensions
+        if ndims == 2:
+            for i in range(-1, 2):
+                for j in range(-1, 2):
+                        coord = [
+                            (self._coords[0] + i) % self._decomp[0],
+                            (self._coords[1] + j) % self._decomp[1],
+                        ]
+                        neigh = self._topo.Get_cart_rank(coord)     # AC - how will the new length of coord affect self._topo.Get_cart_rank?
+                        self._neighbors[i + 1, j + 1] = neigh
+                        # self._neighbors.append(neigh)
+        elif ndims == 3:
+            for i in range(-1, 2):
+                for j in range(-1, 2):
+                    for k in range(-1, 2):
+                        coord = [
+                            (self._coords[0] + i) % self._decomp[0],
+                            (self._coords[1] + j) % self._decomp[1],
+                            (self._coords[2] + k) % self._decomp[2],
+                        ]
+                        neigh = self._topo.Get_cart_rank(coord)
+                        self._neighbors[i + 1, j + 1, k + 1] = neigh
+                        # self._neighbors.append(neigh)
 
-        self._extent = [1.0 / self._decomposition[i] for i in range(ndims)]                 # AC - changed "3" to ndims
+        else:
+            print("Need to put an error and break here")
+        
+        print("neighbors: ", self._neighbors)
+
+        self._extent = [1.0 / self._decomp[i] for i in range(ndims)]                 # AC - changed "3" to ndims
         self._origin = [self._coords[i] * self._extent[i] for i in range(ndims)]     # AC - changed "3" to ndims
 
         # A graph topology linking all (8 or 26) unique neighbors
@@ -172,9 +192,9 @@ class Partition:
         return self._nranks
 
     @property
-    def decomposition(self):
+    def decomp(self):
         """np.ndarray: the decomposition of the cubic volume: number of ranks along each dimension"""
-        return self._decomposition
+        return self._decomp
 
     @property
     def coordinates(self):
@@ -202,11 +222,15 @@ class Partition:
         coords: list
             contains relative positions (one of `[-1, 0, 1]`) for all coordinate axes
         """
-        return self._neighbors[tuple(np.array(coords) + 1)]  # In 3D, this is `dx + 1, dy + 1, dz + 1`, not sure if it needs to be unpacked like this?
+        print("In get_neighbor. Printing coords, coords + 1, and type")
+        print(coords)
+        print(coords + 1)
+        print(type(coords))
+        return self._neighbors[coords + 1]  # In 3D, this is `dx + 1, dy + 1, dz + 1`, not sure if it needs to be unpacked like that?
 
     @property
     def neighbors(self):
-        """np.ndarray: an array with the ranks of the neighboring processes, shape is (3,)*ndims
+        """np.ndarray: a 3x3 or 3x3x3 array with the ranks of the neighboring processes
         (`neighbors[1,1,1]` is this processor)"""
         return self._neighbors
 
@@ -225,8 +249,8 @@ class Partition:
     @property
     def ranklist(self):
         """np.ndarray: A complete list of ranks, aranged by their coordinates.
-        The array has shape `partition.decomposition`"""
-        ranklist = np.empty(self.decomposition, dtype=np.int32)   # AC - Note: self.decomposition is not giving its shape to be the shape of ranklist; self.decomposition is giving itself to be the shape of ranklist. The shape of self.decomposition is (ndims, ). The shape of ranklist is self.decomposition.
-        for idx in itertools.product(*map(range, self.decomposition)):
+        The array has shape `partition.decomp`"""
+        ranklist = np.empty(self.decomp, dtype=np.int32)   # AC - Note: self.decomp is not giving its shape to be the shape of ranklist; self.decomp is giving itself to be the shape of ranklist. The shape of self.decomp is (ndims, ). The shape of ranklist is self.decomp.
+        for idx in itertools.product(*map(range, self.decomp)):
             ranklist[tuple(idx)] = self._topo.Get_cart_rank(idx)  # AC - that tuple() around idx might not be strictly necessary
-        return ranklist
+        return ranklist        

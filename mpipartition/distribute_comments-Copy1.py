@@ -1,4 +1,4 @@
-from partition import Partition, MPI
+from .partition import Partition, MPI
 from typing import Mapping, Tuple, Union
 import sys
 import numpy as np
@@ -58,11 +58,11 @@ def distribute(
 
     rank = partition.rank
     comm = partition.comm
-    ranklist = np.array(partition.ranklist)  # ranklist has shape self.decomposition (so it will depend on the number of dimensions)
+    ranklist = np.array(partition.ranklist)
     extent = box_size * np.array(partition.extent)
 
     # count number of particles we have
-    total_to_send = len(data[coordinate_keys[0]])
+    total_to_send = len(data[coordinate_keys[0]])   # AC - this is just a way to get the number of particles
     
     if total_to_send > 0:
         
@@ -82,35 +82,48 @@ def distribute(
             
             # Find home of each particle
             _i = (data[coordinate_keys[i]] / extent[i]).astype(np.int32)
-            _i = np.clip(_i, 0, partition.decomposition[i] - 1)
-            coords_to_rank.append(_i)                # AC - add lists of coordinates, one dimension at a time
+            _i = np.clip(_i, 0, partition.decomp[i] - 1)
+            coords_to_rank.append([_i])              # AC - add lists of coordinates, one dimension at a ti
+            
+            # AC - what does this look like right now?
+            # I think coords_to_rank is a list of lists:
+            # coords_to_rank = [ [x0, x1, x2,...], [y0, y1, y2,...], [z0, z1, z2,...]]
+            # I want it to look like: 
+            # coords_to_rank = [ (x0, y0, z0), (x1, y1, z1), (x2, y2, z2), ...]
 
-        # AC - previously used the following line, but created really weird behavior...
-        #coords_to_rank = list(zip(*coords_to_rank))     # AC - rearrange, so we have sets of coordinate pairings for all particles
-        home_idx = ranklist[tuple(coords_to_rank)]       # AC - stores the rank number for the "home" rank of each particle
+        coords_to_rank = zip(*coords_to_rank)
+        home_idx = ranklist[tuple(coords_to_rank)]  # AC - this stores the "home rank" of each particle (i.e. which rank is doing the calculations for each particle)
 
-    else:
-        # there are no particles on this rank
-        home_idx = np.empty(0, dtype=np.int32)
-        
     # sort by rank
-    s = np.argsort(home_idx)   # AC - added flatten?
+    s = np.argsort(home_idx)
     home_idx = home_idx[s]   # AC - sort home_idx in order of the ranks (so all particles on rank 0 will be next to each other, same with rank 1, etc.)
 
     # offsets and counts
-    send_displacements = np.searchsorted(home_idx, np.arange(nranks))   # AC - Find the "break points" within the sorted list of home ranks
-    send_displacements = send_displacements.astype(np.int32)
-    send_counts = np.append(send_displacements[1:], total_to_send) - send_displacements     # AC - Difference between rank breakpoints = the count of each rank. Because `send_displacements` does not give the breakpoint of the last set of ranks, so we input that manually with `total_to_send`. Thus, this gives the number of particles being evaluated by each process.
-    send_counts = send_counts.astype(np.int32)
+    send_displacements = np.searchsorted(home_idx, np.arange(nranks))   # AC - Find indices (in the sorted array home_idx) where elements (from np.arange(nranks), which should look like (0, 1, 2, ..., n)) should be inserted to maintain order.
+    # AC - ooooh it seems like this is finding the "break-points" between lists of the same rank
+    # AC - if something in nranks has the same value as an element in home_idx (which it certainly will), does it get inserted before or after that point?
+    # AC - seems to be before (which is why we skip the first element of send_displacements; we know it will be zero)
+    send_displacements = send_displacements.astype(np.int32)            # AC - make type `int`
+    send_counts = np.append(send_displacements[1:], total_to_send) - send_displacements     # AC - append all of the send_displacements except the first one with total_to_send (which is the number of coordinates in the x direction, I think? Maybe number of particles?)
+    # AC - so that is the list of indices of separation between ranklists (except the 0th one), and then we append the total number of particles (is that just one value?), and subtract from each of those the indices of separation between ranklists? (or are we subtracting those actual indices?)
+    send_counts = send_counts.astype(np.int32)                          # AC - make type `int`
 
     # announce to each rank how many objects will be sent
-    recv_counts = np.empty_like(send_counts)                # AC - empty buffer where we will put the output (helps memory allocation)
-    comm.Alltoall(send_counts, recv_counts)                 # AC - send `send_counts` from all ranks to all other ranks, then gather all to all
-    recv_displacements = np.insert(np.cumsum(recv_counts)[:-1], 0, 0)    # AC - Figuring out the "breakpoints" between rank lists (as in send_displacements)
-    
+    recv_counts = np.empty_like(send_counts)                # AC - empty array with same shape as `send_counts`
+    comm.Alltoall(send_counts, recv_counts)                 # AC - hey look, it's some MPI!
+    # scatter: Scatter data from one process to all other processes in a group
+    # Allgather: Gather to All, gather data from all processes and distribute it to all other processes in a group
+    # Alltoall: All to All Scatter/Gather, send data from all to all processes in a group
+    # (Okay so like scatter, but from all ranks instead of just one. And then combine that with an Allgather)
+    # SO says: Instead of providing a single value that should be shared with each other process, each process specifies 
+    # one value to give to each other process
+    # What we are sending: send_counts
+    # Who will be receiving: recv_counts (that empty array we created) # Why isn't it ranks that are receiving? Or are we just "making a copy" of what is received?
+    recv_displacements = np.insert(np.cumsum(recv_counts)[:-1], 0, 0)    # AC - is this assuming 3 dimensions? Or is that third argument the axis?
+
     # number of objects that this rank will receive
-    total_to_receive = np.sum(recv_counts)    # AC - usually not the same as total_to_send? (but sometimes increases, sometimes decreases). Is it because copies of particles are being reassigned?
-    
+    total_to_receive = np.sum(recv_counts)
+
     # debug message
     if verbose > 1:
         for i in range(nranks):
@@ -128,7 +141,7 @@ def distribute(
     # send data all-to-all, each array individually
     data_new = {k: np.empty(total_to_receive, dtype=data[k].dtype) for k in data.keys()}
 
-    for k in data.keys():
+    for k in data.keys():     # AC - does data.keys() make any assumptions about number of dimensions?
         d = data[k][s]
         s_msg = [d, (send_counts, send_displacements), d.dtype.char]
         r_msg = [data_new[k], (recv_counts, recv_displacements), d.dtype.char]
