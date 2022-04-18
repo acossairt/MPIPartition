@@ -4,8 +4,6 @@
 
 import sys
 sys.path.append('/data/a/cpac/aurora/MPIPartition/mpipartition')
-import mpipartition
-import unittest
 import pytest
 from partition import Partition
 from distribute import distribute
@@ -14,8 +12,9 @@ import numpy as np
 def test_distribute(ndims, box_size, n_local = 1000):
 
     # partitioning a box with the available MPI ranks
-    partition = Partition(ndims = ndims, create_topo_unique=True)
+    partition = Partition(ndims = ndims)#, create_topo_unique=True)
     rank = partition.rank
+    nranks = partition.nranks
     origin = partition.origin
     extent = partition.extent
     print("Rank ", rank, " has origin ", origin, " and extent ", extent)
@@ -23,7 +22,6 @@ def test_distribute(ndims, box_size, n_local = 1000):
     # Create data according to desired dimensions
     possible_coords = "xyzwuv"
     coord_keys = possible_coords[:ndims]
-    print(coord_keys)
 
     data = {
         x: np.random.uniform(0, 1*box_size, n_local) for i, x in enumerate(coord_keys)#,
@@ -36,8 +34,8 @@ def test_distribute(ndims, box_size, n_local = 1000):
 
     # make sure we still have all particles
     n_local_distributed = len(data_distributed['x'])
-    print("My rank is: ", rank, " and my overloaded data has length: ", n_local_distributed)
     n_global_distributed = partition.comm.reduce(n_local_distributed)
+    assert n_global_distributed == n_local * nranks
 
     if rank == 0:
         assert n_global_distributed == n_local * partition.nranks
@@ -67,8 +65,7 @@ def test_distribute(ndims, box_size, n_local = 1000):
         assert global_volume == box_size**ndims
     # AC - Some sort of problem happening here??? Rank 0 seems to not be happening at all...
         
-        
-# Try feeding a box_size and nranks combo that prevents a commensurate topology
+# Try feeding a box_size and nranks combo that prevents a commensurate topology? Something like below?
 #test_distribute(box_size = 33) # run with np 4
 
 @pytest.mark.mpi
@@ -87,13 +84,13 @@ def test_3d(box_size = 200):
 def test_4d(box_size = 200):
     test_distribute(ndims = 4, box_size = box_size)
 
-test_1d()
+#test_1d()
 
 test_2d()
 
-test_3d()
+#test_3d()
 
-test_4d()
+#test_4d()
 
 #class TestMpipartition(unittest.TestCase):
 #    """Tests for `mpipartition` package."""

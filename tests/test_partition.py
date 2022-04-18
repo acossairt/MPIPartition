@@ -55,8 +55,6 @@ def test_partition(ndims, verbose = True):
         assert partition.extent[dim] - partition.origin[dim] <= 1.0
 
 # RUN THE TESTS FOR DIFFERENT DIMENSIONS
-test_partition(1)
-# Eventually learn how to do it this way
 @pytest.mark.mpi
 def test_partition_1d():
     test_partition(1)
@@ -72,3 +70,5 @@ def test_partition_3d():
 @pytest.mark.mpi
 def test_partition_4d():
     test_partition(4)
+    
+test_partition_1d()
